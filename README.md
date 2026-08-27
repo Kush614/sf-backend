@@ -107,8 +107,8 @@ also read):
 (case-insensitive). Everything else is optional.
 
 ```
-first_name, last_name, email, phone, company, job_title,
-address, city, state, postal_code, country, notes, photo
+first_name, last_name, email, phone, company, job_title, notes, photo,
+addresses[]
 ```
 
 Responses add `id`, `full_name`, `created_at`, and `updated_at` (UTC).
@@ -129,6 +129,41 @@ Anything else — a plain URL, a non-image media type, malformed base64 — is r
 with `422`. Since the photo travels inside the contact row, it is also returned by
 `GET /api/v1/contacts`; clients that show many contacts at once should upload
 avatar-sized images rather than originals.
+
+#### `addresses`
+
+A contact has **many** addresses, each a row in the `addresses` table with a foreign
+key back to `contacts.id` and a `type` of `home`, `work`, or `other`. There is no
+one-per-type rule — two `work` addresses are legal — and no limit below
+`MAX_ADDRESSES` (10).
+
+```jsonc
+"addresses": [
+  { "id": 1, "type": "work", "street": "1 Market St, Suite 400",
+    "city": "San Francisco", "state": "CA", "postal_code": "94105", "country": "USA" },
+  { "id": 2, "type": "home", "city": "London", "country": "UK" }
+]
+```
+
+Every field except `type` is optional, and `type` defaults to `home`.
+
+**Addresses have no partial update.** The list is written as a whole:
+
+| Request | Effect on addresses |
+| --- | --- |
+| `POST` with `addresses` | Creates them |
+| `PUT` with `addresses` | Replaces the whole set |
+| `PUT` *without* `addresses` | **Clears them**, like every other omitted field |
+| `PATCH` with `addresses` | Replaces the whole set (`[]` clears) |
+| `PATCH` *without* `addresses` | Leaves them untouched |
+
+Rows dropped from the list are deleted, via the relationship's `delete-orphan`
+cascade; deleting a contact deletes its addresses through the same cascade and the
+FK's `ON DELETE CASCADE`. `id` is server-assigned and stable only for as long as an
+address survives a write — a `PUT` builds fresh rows, so ids change.
+
+Addresses are loaded with `selectin`, so listing a page of contacts is two queries
+rather than one per contact.
 
 ### List query parameters
 
