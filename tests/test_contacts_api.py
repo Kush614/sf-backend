@@ -380,3 +380,35 @@ def test_writes_still_validate_the_photo(client, payload, monkeypatch):
     assert client.post(
         BASE, json={**payload, "email": "x@example.com", "photo": "data:image/png;base64,!!"}
     ).status_code == 422
+
+
+def test_address_only_patch_bumps_updated_at(client, payload):
+    """
+    `updated_at` is a column-level `onupdate`, which does not fire when only
+    child rows change — so an address-only write would report a stale time.
+    """
+    created = client.post(BASE, json=payload).json()
+
+    patched = client.patch(f"{BASE}/{created['id']}", json={"addresses": [{"type": "home"}]}).json()
+
+    assert patched["updated_at"] > created["updated_at"]
+
+
+def test_clearing_addresses_bumps_updated_at(client, payload):
+    created = client.post(BASE, json=payload).json()
+
+    cleared = client.patch(f"{BASE}/{created['id']}", json={"addresses": []}).json()
+
+    assert cleared["updated_at"] > created["updated_at"]
+
+
+def test_put_changing_only_addresses_bumps_updated_at(client, payload):
+    """Same gap on PUT: every scalar is resent unchanged, so nothing dirties the row."""
+    created = client.post(BASE, json=payload).json()
+
+    replaced = client.put(
+        f"{BASE}/{created['id']}",
+        json={**payload, "addresses": [{"type": "other", "city": "Oslo"}]},
+    ).json()
+
+    assert replaced["updated_at"] > created["updated_at"]

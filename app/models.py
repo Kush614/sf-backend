@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-def _utcnow() -> datetime:
+def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -40,12 +40,12 @@ class Contact(Base):
     photo: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=_utcnow,
-        onupdate=_utcnow,
+        default=utcnow,
+        onupdate=utcnow,
         server_default=func.now(),
         nullable=False,
     )

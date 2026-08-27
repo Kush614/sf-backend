@@ -1,7 +1,7 @@
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Address, Contact
+from app.models import Address, Contact, utcnow
 from app.schemas import AddressCreate, ContactCreate, ContactReplace, ContactUpdate
 
 SORTABLE_FIELDS = ("id", "first_name", "last_name", "email", "company", "created_at", "updated_at")
@@ -14,6 +14,18 @@ def _normalize_email(email: str) -> str:
 def _to_addresses(payloads: list[AddressCreate]) -> list[Address]:
     """Build detached Address rows; the caller attaches them to a contact."""
     return [Address(**payload.model_dump()) for payload in payloads]
+
+
+def _set_addresses(contact: Contact, payloads: list[AddressCreate]) -> None:
+    """
+    Replace a contact's addresses and mark the contact itself as modified.
+
+    `updated_at` is a column-level `onupdate`, which SQLAlchemy only fires when
+    a column on this row changes. Writing child rows alone would leave the
+    contact reporting a last-modified time from before the change.
+    """
+    contact.addresses = _to_addresses(payloads)
+    contact.updated_at = utcnow()
 
 
 def get_contact(db: Session, contact_id: int) -> Contact | None:
@@ -79,7 +91,7 @@ def replace_contact(db: Session, contact: Contact, payload: ContactReplace) -> C
         setattr(contact, field, _normalize_email(value) if field == "email" else value)
     # Assigning the collection deletes the rows that fall out of it, via the
     # relationship's delete-orphan cascade.
-    contact.addresses = _to_addresses(payload.addresses)
+    _set_addresses(contact, payload.addresses)
     db.commit()
     db.refresh(contact)
     return contact
@@ -93,7 +105,7 @@ def update_contact(db: Session, contact: Contact, payload: ContactUpdate) -> Con
     # value — otherwise an explicit `"addresses": null` would be silently
     # ignored rather than clearing them, as it does for every other field.
     if "addresses" in payload.model_fields_set:
-        contact.addresses = _to_addresses(payload.addresses or [])
+        _set_addresses(contact, payload.addresses or [])
     db.commit()
     db.refresh(contact)
     return contact

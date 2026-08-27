@@ -150,3 +150,15 @@ def test_request_bodies_carry_examples(spec):
 def test_put_and_patch_semantics_are_explained(spec):
     assert "cleared" in spec["paths"][ITEM_PATH]["put"]["description"]
     assert "omit" in spec["paths"][ITEM_PATH]["patch"]["description"]
+
+
+def test_every_seeded_contact_has_an_address():
+    """The seed is the demo data; converting it must not drop anyone's address."""
+    from app.models import AddressType
+    from app.seed import SAMPLE_CONTACTS
+
+    assert SAMPLE_CONTACTS, "there should be sample contacts"
+    for contact in SAMPLE_CONTACTS:
+        assert contact.addresses, f"{contact.first_name} lost their address"
+        for address in contact.addresses:
+            assert address.type in AddressType
