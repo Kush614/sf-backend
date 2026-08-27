@@ -8,7 +8,8 @@ addresses survive the export instead of being flattened into one.
 """
 
 import re
-from collections.abc import Iterable
+import uuid
+from collections.abc import Iterable, Iterator
 
 from app.models import Address, Contact
 
@@ -77,6 +78,18 @@ def _address_line(address: Address) -> str:
     return f"ADR;TYPE={address.type.value}:{value}"
 
 
+# A fixed namespace plus the contact's id and creation instant. Deterministic,
+# so re-exporting the same contact yields the same UID and importers update
+# rather than duplicate — while two installations would have to create the same
+# id in the same microsecond to collide.
+_UID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "sf-backend.contacts")
+
+
+def _uid(contact: Contact) -> str:
+    seed = f"{contact.id}:{contact.created_at.isoformat()}"
+    return f"urn:uuid:{uuid.uuid5(_UID_NAMESPACE, seed)}"
+
+
 def _lines(contact: Contact) -> Iterable[str]:
     yield "BEGIN:VCARD"
     yield "VERSION:4.0"
@@ -86,7 +99,10 @@ def _lines(contact: Contact) -> Iterable[str]:
     yield f"EMAIL:{_escape(contact.email)}"
 
     if contact.phone:
-        yield f"TEL;TYPE=voice:{_escape(contact.phone)}"
+        # TEL defaults to the URI value type, and this app stores phone numbers
+        # verbatim in whatever shape they were typed — so declare text rather
+        # than emit "+1 (415) 555-0101" where a `tel:` URI is expected.
+        yield f"TEL;TYPE=voice;VALUE=text:{_escape(contact.phone)}"
     if contact.company:
         yield f"ORG:{_escape(contact.company)}"
     if contact.job_title:
@@ -103,7 +119,7 @@ def _lines(contact: Contact) -> Iterable[str]:
     if contact.notes:
         yield f"NOTE:{_escape(contact.notes)}"
 
-    yield f"UID:urn:uuid:contact-{contact.id}"
+    yield f"UID:{_uid(contact)}"
     yield f"REV:{contact.updated_at.strftime('%Y%m%dT%H%M%SZ')}"
     yield "END:VCARD"
 
@@ -113,9 +129,16 @@ def to_vcard(contact: Contact) -> str:
     return "".join(f"{_fold(line)}\r\n" for line in _lines(contact))
 
 
-def to_vcards(contacts: Iterable[Contact]) -> str:
-    """Several contacts, concatenated — the standard way to carry an address book."""
-    return "".join(to_vcard(contact) for contact in contacts)
+def iter_vcards(contacts: Iterable[Contact]) -> Iterator[str]:
+    """
+    Several contacts, concatenated — the standard way to carry an address book.
+
+    Yields one card at a time so the caller can stream them out. Photos are
+    inlined and notes have no length limit, so building the whole body as a
+    single string would hold the entire export in memory twice.
+    """
+    for contact in contacts:
+        yield to_vcard(contact)
 
 
 def vcard_filename(contact: Contact) -> str:

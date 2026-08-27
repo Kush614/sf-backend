@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -12,7 +13,7 @@ from app.schemas import (
     ContactUpdate,
     ErrorResponse,
 )
-from app.vcard import to_vcard, to_vcards, vcard_filename
+from app.vcard import iter_vcards, to_vcard, vcard_filename
 
 router = APIRouter(prefix="/api/v1/contacts", tags=["contacts"])
 
@@ -153,12 +154,19 @@ def export_contacts_vcard(
     """
     Export the address book as one concatenated vCard file.
 
-    Declared before `/{contact_id}` so the literal path wins the match. Photos
-    are inlined, so the cap is what keeps the response from growing without
-    bound — this reads the whole result set into memory to build the body.
+    Declared before `/{contact_id}` so the literal path wins the match.
+
+    Cards are streamed one at a time rather than concatenated, since photos are
+    inlined and notes have no length limit — building the body as a single
+    string would hold the whole export in memory twice. The row cap still
+    applies: the contacts themselves are read in one query.
     """
     contacts, _ = crud.list_contacts(db, search=search, limit=limit, offset=0)
-    return _vcard_response(to_vcards(contacts), "contacts.vcf")
+    return StreamingResponse(
+        iter_vcards(contacts),
+        media_type=VCARD_MEDIA_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="contacts.vcf"'},
+    )
 
 
 @router.get(

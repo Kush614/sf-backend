@@ -1,5 +1,9 @@
 """The vCard export: one contact, the whole book, and the escaping rules."""
 
+from sqlalchemy import select
+
+from app.database import SessionLocal
+
 BASE = "/api/v1/contacts"
 
 TINY_PNG = (
@@ -119,3 +123,61 @@ def test_export_path_is_not_swallowed_by_the_id_route(client):
     response = client.get(f"{BASE}/vcard")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/vcard")
+
+
+def test_phone_declares_the_text_value_type(client, payload):
+    """TEL defaults to URI; this app stores phone numbers verbatim."""
+    contact_id = client.post(BASE, json={**payload, "phone": "+1 (415) 555-0101"}).json()["id"]
+
+    lines = unfold(client.get(f"{BASE}/{contact_id}/vcard").text)
+    assert "TEL;TYPE=voice;VALUE=text:+1 (415) 555-0101" in lines
+
+
+def test_uid_is_a_syntactically_valid_uuid_urn(client, payload):
+    import uuid
+
+    contact_id = client.post(BASE, json=payload).json()["id"]
+    lines = unfold(client.get(f"{BASE}/{contact_id}/vcard").text)
+
+    uid = next(line for line in lines if line.startswith("UID:"))
+    urn = uid.removeprefix("UID:")
+    assert urn.startswith("urn:uuid:")
+    # Raises if it is not a real UUID.
+    assert uuid.UUID(urn.removeprefix("urn:uuid:")).version == 5
+
+
+def test_uid_is_stable_across_exports(client, payload):
+    """Re-importing must update the contact, not duplicate it."""
+    contact_id = client.post(BASE, json=payload).json()["id"]
+
+    def uid() -> str:
+        lines = unfold(client.get(f"{BASE}/{contact_id}/vcard").text)
+        return next(line for line in lines if line.startswith("UID:"))
+
+    assert uid() == uid()
+
+
+def test_uids_differ_between_contacts(client, payload):
+    first = client.post(BASE, json=payload).json()["id"]
+    second = client.post(BASE, json={**payload, "email": "grace@example.com"}).json()["id"]
+
+    def uid(contact_id: int) -> str:
+        lines = unfold(client.get(f"{BASE}/{contact_id}/vcard").text)
+        return next(line for line in lines if line.startswith("UID:"))
+
+    assert uid(first) != uid(second)
+
+
+def test_export_streams_rather_than_buffering(client, payload):
+    """One card at a time, so a big address book is not held in memory twice."""
+    from app.models import Contact
+    from app.vcard import iter_vcards
+
+    client.post(BASE, json=payload)
+
+    with SessionLocal() as db:
+        contacts = db.execute(select(Contact)).scalars().all()
+        chunks = list(iter_vcards(contacts))
+
+    assert len(chunks) == len(contacts)
+    assert all(chunk.startswith("BEGIN:VCARD") for chunk in chunks)
