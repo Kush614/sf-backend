@@ -165,6 +165,36 @@ address survives a write — a `PUT` builds fresh rows, so ids change.
 Addresses are loaded with `selectin`, so listing a page of contacts is two queries
 rather than one per contact.
 
+### vCard export
+
+Two endpoints render contacts as **vCard 4.0** (RFC 6350), which is what phones and
+mail clients import:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/contacts/{id}/vcard` | One contact, as `Ada-Lovelace.vcf` |
+| `GET /api/v1/contacts/vcard?search=` | The matching contacts concatenated, as `contacts.vcf` |
+
+vCard already has native slots for both of the things a contact carries here, so
+nothing is flattened on the way out: every address becomes its own `ADR` with its
+`TYPE`, and the photo rides along in `PHOTO`.
+
+```
+ADR;TYPE=work:;;1 Market St\, Suite 400;San Francisco;CA;94105;USA
+ADR;TYPE=home:;;;London;;;UK
+PHOTO:data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAA
+ ADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+```
+
+Both responses are `text/vcard; charset=utf-8` with a `Content-Disposition`
+attachment, so a browser saves them rather than rendering them. The filename is
+built from an allow-list of characters and falls back to `contact-{id}.vcf`.
+
+Lines are folded at 75 octets on UTF-8 character boundaries, `TEXT` values escape
+`\ ; ,` and newlines, and `PHOTO` is left unescaped because its value is a URI
+rather than text. The export is capped at 200 contacts — photos are inlined, so
+that cap is what bounds the response.
+
 ### List query parameters
 
 | Param | Default | Notes |
