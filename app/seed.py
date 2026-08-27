@@ -42,6 +42,7 @@ SAMPLE_CONTACTS = [
         phone="+44-20-5555-0103",
         company="Bletchley Park",
         job_title="Cryptanalyst",
+        addresses=[AddressCreate(type=AddressType.work, city="London", country="UK")],
     ),
 ]
 
