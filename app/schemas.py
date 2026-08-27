@@ -169,16 +169,6 @@ class ContactBase(BaseModel):
         description="Free-form notes about the contact. No length limit.",
         examples=["Met at the SF hackathon."],
     )
-    photo: PhotoDataUrl = Field(
-        default=None,
-        description=(
-            "Profile photo as a base64 data URL. Must be one of "
-            f"{', '.join(ALLOWED_PHOTO_MEDIA_TYPES)} and decode to at most "
-            f"{MAX_PHOTO_BYTES // (1024 * 1024)} MB. Blank is stored as `null`, "
-            "and a contact without one falls back to their initials."
-        ),
-        examples=[_TINY_PNG],
-    )
 
 
 _FULL_EXAMPLE = {
@@ -207,6 +197,17 @@ _MINIMAL_EXAMPLE = {"first_name": "Grace", "last_name": "Hopper", "email": "grac
 
 class ContactWrite(ContactBase):
     """Shared by the two bodies that accept a whole contact (`POST` and `PUT`)."""
+
+    photo: PhotoDataUrl = Field(
+        default=None,
+        description=(
+            "Profile photo as a base64 data URL. Must be one of "
+            f"{', '.join(ALLOWED_PHOTO_MEDIA_TYPES)} and decode to at most "
+            f"{MAX_PHOTO_BYTES // (1024 * 1024)} MB. Blank is stored as `null`, "
+            "and a contact without one falls back to their initials."
+        ),
+        examples=[_TINY_PNG],
+    )
 
     addresses: list[AddressCreate] = Field(
         default_factory=list,
@@ -294,6 +295,14 @@ class ContactRead(ContactBase):
     )
 
     id: int = Field(description="Server-assigned identifier.", examples=[1])
+    # Deliberately not `PhotoDataUrl`: the stored value was validated when it was
+    # written, and re-running the validator here would base64-decode every photo
+    # again on every response — up to 200 of them for one page of contacts.
+    photo: str | None = Field(
+        default=None,
+        description="Profile photo as a base64 data URL, or `null` to fall back to initials.",
+        examples=[_TINY_PNG],
+    )
     addresses: list[AddressRead] = Field(
         default_factory=list,
         description="Every address on file for this contact, in display order.",

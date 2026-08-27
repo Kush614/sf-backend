@@ -336,3 +336,47 @@ def test_patch_with_explicit_null_clears_addresses(client, payload):
     assert body["addresses"] == []
     with SessionLocal() as db:
         assert db.execute(select(func.count()).select_from(Address)).scalar_one() == 0
+
+
+def test_reads_do_not_re_decode_stored_photos(client, payload, monkeypatch):
+    """
+    A stored photo was validated when it was written. Re-validating on the way
+    out would base64-decode every photo on every response — up to 200 of them
+    for one page of contacts.
+    """
+    import base64 as base64_module
+
+    client.post(BASE, json={**payload, "photo": TINY_PNG})
+
+    decodes: list[int] = []
+    real_b64decode = base64_module.b64decode
+
+    def counting_b64decode(*args, **kwargs):
+        decodes.append(1)
+        return real_b64decode(*args, **kwargs)
+
+    monkeypatch.setattr(base64_module, "b64decode", counting_b64decode)
+
+    assert client.get(BASE).json()["items"][0]["photo"] == TINY_PNG
+    assert client.get(f"{BASE}/1").json()["photo"] == TINY_PNG
+    assert decodes == []
+
+
+def test_writes_still_validate_the_photo(client, payload, monkeypatch):
+    """The other half of the same change: the write path must still decode."""
+    import base64 as base64_module
+
+    decodes: list[int] = []
+    real_b64decode = base64_module.b64decode
+
+    def counting_b64decode(*args, **kwargs):
+        decodes.append(1)
+        return real_b64decode(*args, **kwargs)
+
+    monkeypatch.setattr(base64_module, "b64decode", counting_b64decode)
+
+    assert client.post(BASE, json={**payload, "photo": TINY_PNG}).status_code == 201
+    assert decodes
+    assert client.post(
+        BASE, json={**payload, "email": "x@example.com", "photo": "data:image/png;base64,!!"}
+    ).status_code == 422
