@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -12,6 +13,7 @@ from app.schemas import (
     ContactUpdate,
     ErrorResponse,
 )
+from app.vcard import iter_vcards, to_vcard, vcard_filename
 
 router = APIRouter(prefix="/api/v1/contacts", tags=["contacts"])
 
@@ -22,6 +24,15 @@ NOT_FOUND = {
     "description": "No contact exists with that id.",
     "content": {"application/json": {"example": {"detail": "Contact 42 not found"}}},
 }
+# Photos are inlined in the export, so this cap is what bounds the response.
+MAX_VCARD_EXPORT = 200
+
+VCARD_MEDIA_TYPE = "text/vcard; charset=utf-8"
+VCARD_RESPONSE = {
+    "content": {"text/vcard": {"schema": {"type": "string"}}},
+    "description": "A vCard 4.0 document, offered to the browser as a download.",
+}
+
 EMAIL_CONFLICT = {
     "model": ErrorResponse,
     "description": "Another contact already uses that email address.",
@@ -34,6 +45,17 @@ def _get_or_404(db: Session, contact_id: int) -> Contact:
     if contact is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Contact {contact_id} not found")
     return contact
+
+
+def _vcard_response(body: str, filename: str) -> Response:
+    """A vCard body the browser saves rather than renders."""
+    return Response(
+        content=body,
+        media_type=VCARD_MEDIA_TYPE,
+        # `filename` is built from an allow-list of characters, so it cannot
+        # close the quoted string early or inject another header.
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _reject_duplicate_email(db: Session, email: str, *, exclude_id: int | None = None) -> None:
@@ -106,6 +128,63 @@ def list_contacts(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get(
+    "/vcard",
+    operation_id="exportContactsVcard",
+    summary="Export contacts as vCards",
+    response_class=Response,
+    responses={status.HTTP_200_OK: VCARD_RESPONSE},
+)
+def export_contacts_vcard(
+    db: Session = Depends(get_db),
+    search: str | None = Query(
+        default=None,
+        description="Same filter as `GET /api/v1/contacts`. Omit to export everything.",
+        examples=["lovelace"],
+    ),
+    limit: int = Query(
+        default=MAX_VCARD_EXPORT,
+        ge=1,
+        le=MAX_VCARD_EXPORT,
+        description=f"Maximum contacts to export (1–{MAX_VCARD_EXPORT}).",
+    ),
+) -> Response:
+    """
+    Export the address book as one concatenated vCard file.
+
+    Declared before `/{contact_id}` so the literal path wins the match.
+
+    Cards are streamed one at a time rather than concatenated, since photos are
+    inlined and notes have no length limit — building the body as a single
+    string would hold the whole export in memory twice. The row cap still
+    applies: the contacts themselves are read in one query.
+    """
+    contacts, _ = crud.list_contacts(db, search=search, limit=limit, offset=0)
+    return StreamingResponse(
+        iter_vcards(contacts),
+        media_type=VCARD_MEDIA_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="contacts.vcf"'},
+    )
+
+
+@router.get(
+    "/{contact_id}/vcard",
+    operation_id="getContactVcard",
+    summary="Download a contact as a vCard",
+    response_class=Response,
+    responses={status.HTTP_200_OK: VCARD_RESPONSE, status.HTTP_404_NOT_FOUND: NOT_FOUND},
+)
+def get_contact_vcard(contact_id: int = CONTACT_ID, db: Session = Depends(get_db)) -> Response:
+    """
+    One contact as a vCard 4.0 document, ready to import into a phone.
+
+    Every address is exported as its own `ADR` with its `TYPE`, and the photo
+    rides along in `PHOTO`, so nothing is flattened on the way out.
+    """
+    contact = _get_or_404(db, contact_id)
+    return _vcard_response(to_vcard(contact), vcard_filename(contact))
 
 
 @router.get(
