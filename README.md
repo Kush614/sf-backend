@@ -33,6 +33,12 @@ served:
 
 If you changed `CONTACTS_HOST` or `CONTACTS_PORT`, substitute those instead.
 
+![The contacts endpoints in Swagger UI](docs/endpoints.png)
+
+Note the ordering: `/api/v1/contacts/vcard` is declared *before*
+`/api/v1/contacts/{contact_id}`, so the literal path wins the match rather than
+being read as a contact id.
+
 ### Trying a request in Swagger UI
 
 1. Expand an endpoint, e.g. `POST /api/v1/contacts`.
