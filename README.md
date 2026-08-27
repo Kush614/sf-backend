@@ -115,6 +115,13 @@ Responses add `id`, `full_name`, `created_at`, and `updated_at` (UTC).
 
 #### `photo`
 
+> **Adds a column.** Startup only calls `Base.metadata.create_all()`, which
+> creates missing tables but does not alter existing ones. A **file-backed
+> SQLite or Postgres database created before this change will not have
+> `contacts.photo`, and every read will fail** with a missing-column error until
+> you add it: `ALTER TABLE contacts ADD COLUMN photo TEXT;`. The in-memory
+> default is unaffected — it starts empty on every boot.
+
 A profile picture, stored inline as a base64 data URL
 (`data:image/png;base64,iVBORw0...`) because the default database is in-process and
 there is no object store to hand out URLs for. Sending `""` stores `null`, and a
@@ -131,6 +138,16 @@ with `422`. Since the photo travels inside the contact row, it is also returned 
 avatar-sized images rather than originals.
 
 #### `addresses`
+
+> **Breaking schema change.** The flat `address` / `city` / `state` /
+> `postal_code` / `country` columns on `contacts` are gone. Startup only calls
+> `Base.metadata.create_all()`, which adds the `addresses` table but does not
+> alter existing tables or move data — so a **file-backed SQLite or Postgres
+> database created before this change keeps its old columns, and the API stops
+> reading them.** The in-memory default is unaffected, since it starts empty
+> every boot. There is no migration tool in this project; to upgrade a
+> persistent database, copy each contact's old address into an `addresses` row
+> (`type = 'home'` is the sensible default) before dropping the old columns.
 
 A contact has **many** addresses, each a row in the `addresses` table with a foreign
 key back to `contacts.id` and a `type` of `home`, `work`, or `other`. There is no

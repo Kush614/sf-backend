@@ -325,3 +325,14 @@ def test_replacing_addresses_deletes_the_old_rows(client, payload):
     with SessionLocal() as db:
         remaining = db.execute(select(func.count()).select_from(Address)).scalar_one()
     assert remaining == 1
+
+
+def test_patch_with_explicit_null_clears_addresses(client, payload):
+    """`null` clears, like every other field — not "silently do nothing"."""
+    contact_id = client.post(BASE, json=payload).json()["id"]
+
+    body = client.patch(f"{BASE}/{contact_id}", json={"addresses": None}).json()
+
+    assert body["addresses"] == []
+    with SessionLocal() as db:
+        assert db.execute(select(func.count()).select_from(Address)).scalar_one() == 0

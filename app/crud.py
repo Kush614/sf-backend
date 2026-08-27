@@ -89,8 +89,11 @@ def update_contact(db: Session, contact: Contact, payload: ContactUpdate) -> Con
     for field, value in payload.model_dump(exclude={"addresses"}, exclude_unset=True).items():
         setattr(contact, field, _normalize_email(value) if field == "email" else value)
     # Addresses have no partial update: present means "replace the whole set".
-    if payload.addresses is not None:
-        contact.addresses = _to_addresses(payload.addresses)
+    # Presence is read from the fields the request actually set, not from the
+    # value — otherwise an explicit `"addresses": null` would be silently
+    # ignored rather than clearing them, as it does for every other field.
+    if "addresses" in payload.model_fields_set:
+        contact.addresses = _to_addresses(payload.addresses or [])
     db.commit()
     db.refresh(contact)
     return contact
