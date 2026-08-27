@@ -1,14 +1,19 @@
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Contact
-from app.schemas import ContactCreate, ContactReplace, ContactUpdate
+from app.models import Address, Contact
+from app.schemas import AddressCreate, ContactCreate, ContactReplace, ContactUpdate
 
 SORTABLE_FIELDS = ("id", "first_name", "last_name", "email", "company", "created_at", "updated_at")
 
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _to_addresses(payloads: list[AddressCreate]) -> list[Address]:
+    """Build detached Address rows; the caller attaches them to a contact."""
+    return [Address(**payload.model_dump()) for payload in payloads]
 
 
 def get_contact(db: Session, contact_id: int) -> Contact | None:
@@ -60,9 +65,9 @@ def list_contacts(
 
 
 def create_contact(db: Session, payload: ContactCreate) -> Contact:
-    data = payload.model_dump()
+    data = payload.model_dump(exclude={"addresses"})
     data["email"] = _normalize_email(data["email"])
-    contact = Contact(**data)
+    contact = Contact(**data, addresses=_to_addresses(payload.addresses))
     db.add(contact)
     db.commit()
     db.refresh(contact)
@@ -70,16 +75,25 @@ def create_contact(db: Session, payload: ContactCreate) -> Contact:
 
 
 def replace_contact(db: Session, contact: Contact, payload: ContactReplace) -> Contact:
-    for field, value in payload.model_dump().items():
+    for field, value in payload.model_dump(exclude={"addresses"}).items():
         setattr(contact, field, _normalize_email(value) if field == "email" else value)
+    # Assigning the collection deletes the rows that fall out of it, via the
+    # relationship's delete-orphan cascade.
+    contact.addresses = _to_addresses(payload.addresses)
     db.commit()
     db.refresh(contact)
     return contact
 
 
 def update_contact(db: Session, contact: Contact, payload: ContactUpdate) -> Contact:
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    for field, value in payload.model_dump(exclude={"addresses"}, exclude_unset=True).items():
         setattr(contact, field, _normalize_email(value) if field == "email" else value)
+    # Addresses have no partial update: present means "replace the whole set".
+    # Presence is read from the fields the request actually set, not from the
+    # value — otherwise an explicit `"addresses": null` would be silently
+    # ignored rather than clearing them, as it does for every other field.
+    if "addresses" in payload.model_fields_set:
+        contact.addresses = _to_addresses(payload.addresses or [])
     db.commit()
     db.refresh(contact)
     return contact
