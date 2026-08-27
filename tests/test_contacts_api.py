@@ -1,3 +1,7 @@
+import pytest
+
+from app.schemas import MAX_PHOTO_BYTES
+
 BASE = "/api/v1/contacts"
 
 
@@ -144,3 +148,59 @@ def test_delete_contact(client, payload):
 def test_root_lists_entrypoints(client):
     body = client.get("/").json()
     assert body["contacts"] == BASE
+
+
+TINY_PNG = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def test_create_contact_with_photo(client, payload):
+    response = client.post(BASE, json={**payload, "photo": TINY_PNG})
+    assert response.status_code == 201
+    assert response.json()["photo"] == TINY_PNG
+
+
+def test_photo_defaults_to_null(client, payload):
+    assert client.post(BASE, json=payload).json()["photo"] is None
+
+
+def test_blank_photo_is_stored_as_null(client, payload):
+    response = client.post(BASE, json={**payload, "photo": "   "})
+    assert response.status_code == 201
+    assert response.json()["photo"] is None
+
+
+@pytest.mark.parametrize(
+    "photo",
+    [
+        "https://example.com/ada.png",  # not a data URL
+        "data:text/html;base64,PHNjcmlwdD4=",  # not an image
+        "data:image/png;base64,not valid base64!",
+        "data:image/png;base64,",  # decodes to nothing
+    ],
+)
+def test_photo_rejects_bad_values(client, payload, photo):
+    assert client.post(BASE, json={**payload, "photo": photo}).status_code == 422
+
+
+def test_photo_rejects_oversized_image(client, payload):
+    oversized = "data:image/png;base64," + "A" * (4 * (MAX_PHOTO_BYTES // 3) + 8)
+    assert client.post(BASE, json={**payload, "photo": oversized}).status_code == 422
+
+
+def test_patch_can_set_and_clear_photo(client, payload):
+    contact_id = client.post(BASE, json=payload).json()["id"]
+
+    assert client.patch(f"{BASE}/{contact_id}", json={"photo": TINY_PNG}).json()["photo"] == TINY_PNG
+    assert client.patch(f"{BASE}/{contact_id}", json={"photo": None}).json()["photo"] is None
+
+
+def test_put_without_photo_clears_it(client, payload):
+    """PUT is a full replacement, so an omitted photo really is removed."""
+    contact_id = client.post(BASE, json={**payload, "photo": TINY_PNG}).json()["id"]
+
+    response = client.put(f"{BASE}/{contact_id}", json=payload)
+    assert response.status_code == 200
+    assert response.json()["photo"] is None

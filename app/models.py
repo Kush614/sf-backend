@@ -31,6 +31,10 @@ class Contact(Base):
 
     notes: Mapped[str | None] = mapped_column(Text)
 
+    # Base64 data URL (`data:image/png;base64,...`). Kept on the row because the
+    # default database is in-process and there is no object store to point at.
+    photo: Mapped[str | None] = mapped_column(Text)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
     )

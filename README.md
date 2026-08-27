@@ -108,10 +108,27 @@ also read):
 
 ```
 first_name, last_name, email, phone, company, job_title,
-address, city, state, postal_code, country, notes
+address, city, state, postal_code, country, notes, photo
 ```
 
 Responses add `id`, `full_name`, `created_at`, and `updated_at` (UTC).
+
+#### `photo`
+
+A profile picture, stored inline as a base64 data URL
+(`data:image/png;base64,iVBORw0...`) because the default database is in-process and
+there is no object store to hand out URLs for. Sending `""` stores `null`, and a
+contact without a photo is expected to fall back to their initials in the UI.
+
+| Rule | Value |
+| --- | --- |
+| Accepted media types | `image/gif`, `image/jpeg`, `image/png`, `image/webp` |
+| Maximum decoded size | 2 MB |
+
+Anything else — a plain URL, a non-image media type, malformed base64 — is rejected
+with `422`. Since the photo travels inside the contact row, it is also returned by
+`GET /api/v1/contacts`; clients that show many contacts at once should upload
+avatar-sized images rather than originals.
 
 ### List query parameters
 
