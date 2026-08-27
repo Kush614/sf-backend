@@ -264,8 +264,8 @@ class ContactUpdate(BaseModel):
         max_length=MAX_ADDRESSES,
         description=(
             "Replacement list of addresses. Addresses have no partial update: "
-            "sending this key replaces the whole set, and `[]` clears it. Omit "
-            "the key to leave the existing addresses alone."
+            "sending this key replaces the whole set, and `[]` or `null` clears "
+            "it. Omit the key to leave the existing addresses alone."
         ),
     )
     notes: str | None = Field(default=None, description="New notes; replaces the existing text.")

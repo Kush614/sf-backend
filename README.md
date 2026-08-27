@@ -132,6 +132,16 @@ avatar-sized images rather than originals.
 
 #### `addresses`
 
+> **Breaking schema change.** The flat `address` / `city` / `state` /
+> `postal_code` / `country` columns on `contacts` are gone. Startup only calls
+> `Base.metadata.create_all()`, which adds the `addresses` table but does not
+> alter existing tables or move data — so a **file-backed SQLite or Postgres
+> database created before this change keeps its old columns, and the API stops
+> reading them.** The in-memory default is unaffected, since it starts empty
+> every boot. There is no migration tool in this project; to upgrade a
+> persistent database, copy each contact's old address into an `addresses` row
+> (`type = 'home'` is the sensible default) before dropping the old columns.
+
 A contact has **many** addresses, each a row in the `addresses` table with a foreign
 key back to `contacts.id` and a `type` of `home`, `work`, or `other`. There is no
 one-per-type rule — two `work` addresses are legal — and no limit below
