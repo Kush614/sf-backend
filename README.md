@@ -115,6 +115,13 @@ Responses add `id`, `full_name`, `created_at`, and `updated_at` (UTC).
 
 #### `photo`
 
+> **Adds a column.** Startup only calls `Base.metadata.create_all()`, which
+> creates missing tables but does not alter existing ones. A **file-backed
+> SQLite or Postgres database created before this change will not have
+> `contacts.photo`, and every read will fail** with a missing-column error until
+> you add it: `ALTER TABLE contacts ADD COLUMN photo TEXT;`. The in-memory
+> default is unaffected — it starts empty on every boot.
+
 A profile picture, stored inline as a base64 data URL
 (`data:image/png;base64,iVBORw0...`) because the default database is in-process and
 there is no object store to hand out URLs for. Sending `""` stores `null`, and a
